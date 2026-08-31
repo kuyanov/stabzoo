@@ -1,0 +1,42 @@
+format = symmetric_stabilizer_T_v2
+target = even_cat
+n = 5
+partition = 5
+phase_mode = complete
+rank = 3
+omega = (1+I)/sqrt(2) = exp(I*pi/4)
+convention = unnormalized
+term(x) = coef * (-1)^(x^T Q x) * i^(l^T x) * [A x = b]
+score = 1
+defect = -4.4408920985e-16
+pool_size = 18
+search_method = initial
+seed = 0
+verified_exact = true
+
+Stabiliser 0:
+pool_id = 9
+coef = -1/2 - I/2
+Q = [[0, 1, 1, 1, 0], [0, 0, 1, 1, 0], [0, 0, 0, 1, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]]
+l = [2, 2, 2, 2, 0]
+A = [[1, 1, 1, 1, 1]]
+b = [0]
+support_size = 16
+
+Stabiliser 1:
+pool_id = 8
+coef = -1/2 + I/2
+Q = [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]]
+l = [0, 0, 0, 0, 0]
+A = [[1, 1, 1, 1, 1]]
+b = [0]
+support_size = 16
+
+Stabiliser 2:
+pool_id = 16
+coef = 2
+Q = [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]]
+l = [0, 0, 0, 0, 0]
+A = [[1, 0, 0, 0, 0], [0, 1, 0, 0, 0], [0, 0, 1, 0, 0], [0, 0, 0, 1, 0], [0, 0, 0, 0, 1]]
+b = [0, 0, 0, 0, 0]
+support_size = 1

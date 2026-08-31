@@ -1,0 +1,23 @@
+format = symmetric_stabilizer_general_w_v2
+target = odd_cat
+n = 2
+partition = 2
+phase_mode = complete
+rank = 1
+convention = unnormalized
+term(x) = coef(w) * (-1)^(x^T Q x) * i^(l^T x) * [A x = b]
+score = 1
+defect = 0
+pool_size = 15
+search_method = anneal
+seed = 0
+verified_exact = true
+
+Stabiliser 0:
+pool_id = 12
+coef = w
+Q = [[0, 0], [0, 0]]
+l = [0, 0]
+A = [[1, 1]]
+b = [1]
+support_size = 2

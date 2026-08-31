@@ -1,0 +1,41 @@
+format = symmetric_stabilizer_general_w_v2
+target = product
+n = 2
+partition = 2
+phase_mode = complete
+rank = 3
+convention = unnormalized
+term(x) = coef(w) * (-1)^(x^T Q x) * i^(l^T x) * [A x = b]
+score = 3
+defect = 4.4408920985e-16
+pool_size = 15
+search_method = initial
+seed = 0
+verified_exact = true
+
+Stabiliser 0:
+pool_id = 4
+coef = 1/2 - w^2/2
+Q = [[0, 0], [0, 0]]
+l = [1, 1]
+A = []
+b = []
+support_size = 4
+
+Stabiliser 1:
+pool_id = 0
+coef = w^2/4 + I*w^2/4 + w/2 + 1/4 - I/4
+Q = [[0, 0], [0, 0]]
+l = [0, 0]
+A = []
+b = []
+support_size = 4
+
+Stabiliser 2:
+pool_id = 1
+coef = w^2/4 - I*w^2/4 - w/2 + 1/4 + I/4
+Q = [[0, 0], [0, 0]]
+l = [2, 2]
+A = []
+b = []
+support_size = 4
