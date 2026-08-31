@@ -1,0 +1,2 @@
+# stabzoo
+Stabiliser decomposition zoo
