@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+"""Search for symmetric stabiliser decompositions of product T states."""
+
+from __future__ import annotations
+
+import argparse
+from collections.abc import Sequence
+
+import numpy as np
+
+from stab_core import orbit_weights
+from stab_search import add_search_arguments, run_target_search
+
+
+def T_state(n: int) -> np.ndarray:
+    """Return the unnormalised computational-basis vector of ``|T>^n``."""
+    omega = (1.0 + 1.0j) / np.sqrt(2.0)
+    return np.asarray([omega ** index.bit_count() for index in range(1 << n)])
+
+
+def T_state_orbits(ns: Sequence[int]) -> np.ndarray:
+    """Return one unnormalised T-product amplitude per block-weight orbit."""
+    omega = (1.0 + 1.0j) / np.sqrt(2.0)
+    return omega ** orbit_weights(ns).sum(axis=1)
+
+
+def argument_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    return add_search_arguments(parser, partition_example="1+5+5")
+
+
+def main() -> None:
+    run_target_search(argument_parser().parse_args(), T_state_orbits)
+
+
+if __name__ == "__main__":
+    main()
