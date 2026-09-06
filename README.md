@@ -5,7 +5,7 @@ This repo contains stabiliser decompositions of various quantum states, as well 
 
 Example:
 ```
-python3 search_T_product.py 10 18 --workers 4 --output example.json
+OMP_NUM_THREADS=1 python3 search_T_product.py 10 18 --workers 4 --output example.json
 ```
 
 Verification:
