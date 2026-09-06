@@ -49,10 +49,25 @@ def main() -> None:
     args = argument_parser().parse_args()
     if args.phase is None:
         builder = general_phase_product_span
+        target_spec = {
+            "type": "phase_product",
+            "family": True,
+            "symbol": "w",
+            "normalization": "unnormalised",
+            "amplitude": "w**weight",
+        }
     else:
         w = np.exp(1j * args.phase)
         builder = lambda ns: phase_product_orbits(ns, w)
-    run_target_search(args, builder)
+        target_spec = {
+            "type": "phase_product",
+            "family": False,
+            "phase": args.phase,
+            "w": f"exp(I * ({args.phase!r}))",
+            "normalization": "unnormalised",
+            "amplitude": "w**weight",
+        }
+    run_target_search(args, builder, target_spec)
 
 
 if __name__ == "__main__":

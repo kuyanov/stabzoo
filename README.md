@@ -3,6 +3,16 @@ Stabiliser decomposition zoo
 
 This repo contains stabiliser decompositions of various quantum states, as well as the scripts that generate and verify them.
 
+Example:
+```
+python3 search_T_product.py 10 18 --workers 4 --output example.json
+```
+
+Verification:
+```
+python3 verify_decomposition.py example.json
+```
+
 ## T states
 
 ### T product states

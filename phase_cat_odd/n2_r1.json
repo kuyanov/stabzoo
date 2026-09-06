@@ -1,0 +1,58 @@
+{
+  "format": "stabzoo.QlAb.v1",
+  "n": 2,
+  "partition": [
+    2
+  ],
+  "rank": 1,
+  "search_residual": 0.0,
+  "target": {
+    "type": "phase_cat",
+    "family": true,
+    "symbol": "w",
+    "parity": 1,
+    "normalization": "unnormalised",
+    "amplitude": "w**weight if weight % 2 == 1 else 0"
+  },
+  "coefficient_ring": "Q(I)[w]",
+  "coefficients_exact": true,
+  "convention": {
+    "decomposition": "target(x) = sum_j coefficient_j * stabiliser_j(x)",
+    "stabiliser": "(-1)^(x^T Q x) * i^(l^T x) * [A x = b]",
+    "arithmetic": "Q,A,b,x over GF(2); l^T x modulo 4",
+    "quadratic": "x^T Q x = sum_{u<=v} Q[u][v] x[u] x[v] modulo 2",
+    "normalization": "QlAb stabilisers are unnormalised",
+    "bit_order": "blocks are contiguous in partition order; bit 0 is the first bit of the first block",
+    "coefficient_syntax": "SymPy expression syntax using I, sqrt, exp, pi, and target symbols"
+  },
+  "terms": [
+    {
+      "pool_index": 5,
+      "coefficient": "w",
+      "Q": [
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          0
+        ]
+      ],
+      "l": [
+        0,
+        0
+      ],
+      "A": [
+        [
+          1,
+          1
+        ]
+      ],
+      "b": [
+        1
+      ],
+      "support_size": 2
+    }
+  ]
+}

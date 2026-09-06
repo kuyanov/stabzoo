@@ -37,7 +37,16 @@ def main() -> None:
     args = argument_parser().parse_args()
     if not 0 <= args.k <= args.n:
         raise SystemExit(f"--k must lie between 0 and n={args.n}")
-    run_target_search(args, lambda ns: dicke_orbits(ns, args.k))
+    run_target_search(
+        args,
+        lambda ns: dicke_orbits(ns, args.k),
+        {
+            "type": "Dicke",
+            "k": args.k,
+            "normalization": "unnormalised",
+            "amplitude": "1 if weight == k else 0",
+        },
+    )
 
 
 if __name__ == "__main__":

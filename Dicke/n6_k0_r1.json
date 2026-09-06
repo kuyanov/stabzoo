@@ -1,0 +1,149 @@
+{
+  "format": "stabzoo.QlAb.v1",
+  "n": 6,
+  "partition": [
+    6
+  ],
+  "rank": 1,
+  "search_residual": 0.0,
+  "target": {
+    "type": "Dicke",
+    "k": 0,
+    "normalization": "unnormalised",
+    "amplitude": "1 if weight == k else 0"
+  },
+  "coefficient_ring": "Q(I)",
+  "coefficients_exact": true,
+  "convention": {
+    "decomposition": "target(x) = sum_j coefficient_j * stabiliser_j(x)",
+    "stabiliser": "(-1)^(x^T Q x) * i^(l^T x) * [A x = b]",
+    "arithmetic": "Q,A,b,x over GF(2); l^T x modulo 4",
+    "quadratic": "x^T Q x = sum_{u<=v} Q[u][v] x[u] x[v] modulo 2",
+    "normalization": "QlAb stabilisers are unnormalised",
+    "bit_order": "blocks are contiguous in partition order; bit 0 is the first bit of the first block",
+    "coefficient_syntax": "SymPy expression syntax using I, sqrt, exp, pi, and target symbols"
+  },
+  "terms": [
+    {
+      "pool_index": 0,
+      "coefficient": "1",
+      "Q": [
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      "l": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "A": [
+        [
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1
+        ]
+      ],
+      "b": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "support_size": 1
+    }
+  ]
+}

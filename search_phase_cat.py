@@ -76,10 +76,27 @@ def main() -> None:
     parity = args.parity
     if args.phase is None:
         builder = lambda ns: general_phase_cat_span(ns, parity)
+        target_spec = {
+            "type": "phase_cat",
+            "family": True,
+            "symbol": "w",
+            "parity": _parity_bit(parity),
+            "normalization": "unnormalised",
+            "amplitude": f"w**weight if weight % 2 == {_parity_bit(parity)} else 0",
+        }
     else:
         w = np.exp(1j * args.phase)
         builder = lambda ns: phase_cat_orbits(ns, w, parity)
-    run_target_search(args, builder)
+        target_spec = {
+            "type": "phase_cat",
+            "family": False,
+            "phase": args.phase,
+            "w": f"exp(I * ({args.phase!r}))",
+            "parity": _parity_bit(parity),
+            "normalization": "unnormalised",
+            "amplitude": f"w**weight if weight % 2 == {_parity_bit(parity)} else 0",
+        }
+    run_target_search(args, builder, target_spec)
 
 
 if __name__ == "__main__":

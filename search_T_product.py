@@ -32,7 +32,16 @@ def argument_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """Parse command-line arguments and run the requested search."""
-    run_target_search(argument_parser().parse_args(), T_state_orbits)
+    run_target_search(
+        argument_parser().parse_args(),
+        T_state_orbits,
+        {
+            "type": "T_product",
+            "omega": "(1 + I) / sqrt(2)",
+            "normalization": "unnormalised",
+            "amplitude": "omega**weight",
+        },
+    )
 
 
 if __name__ == "__main__":

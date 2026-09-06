@@ -6,7 +6,6 @@ block-weight-orbit coordinates.
 """
 
 from collections.abc import Iterator, Sequence
-
 from functools import cache, lru_cache
 from itertools import combinations, product
 from math import comb
@@ -119,8 +118,7 @@ def core_phase_table(d: int) -> np.ndarray:
     else:
         quadratic = np.zeros((1, 1 << d), dtype=np.int8)
 
-    table = ((linear[:, None, :] + quadratic[None, :, :])
-             & 3).reshape(-1, 1 << d)
+    table = ((linear[:, None, :] + quadratic[None, :, :]) & 3).reshape(-1, 1 << d)
     table = table.astype(np.int8, copy=False)
     table.flags.writeable = False
     return table
@@ -226,8 +224,7 @@ def gen_symmetric_stabilisers_batched(ns: Sequence[int]) -> Iterator[np.ndarray]
         core_phases, columns, orbit_y, internal_phase = data
         n_phases = len(core_phases)
         batch = np.zeros((n_phases, n_orbits), dtype=np.int8)
-        batch[:, columns] = 1 + \
-            ((core_phases[:, orbit_y] + internal_phase) & 3)
+        batch[:, columns] = 1 + ((core_phases[:, orbit_y] + internal_phase) & 3)
         yield batch
 
 

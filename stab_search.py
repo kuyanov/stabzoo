@@ -15,10 +15,10 @@ from __future__ import annotations
 import argparse
 import multiprocessing as mp
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Protocol, Sequence, cast
+from typing import Protocol, cast
 
 import numpy as np
 
@@ -26,13 +26,12 @@ from stab_core import (
     _PHASES,
     core_conjugate_phase_table,
     count_symmetric_stabilisers,
+    gen_partitions,
     gen_symmetric_stabiliser_batch_data,
     gen_symmetric_stabilisers_batched,
     orbit_multiplicities,
     target_in_orbit_basis,
-    gen_partitions,
 )
-
 
 _INDEPENDENCE_TOL = 2e-6  # Search geometry is complex64.
 _PINV_RCOND = 1e-8
@@ -61,7 +60,7 @@ class _NullProgress:
 
     def close(self) -> None:
         """Close the no-op progress bar."""
-        pass
+        return
 
 
 def _progress(total: int, enabled: bool) -> Progress:
@@ -1217,6 +1216,11 @@ def add_search_arguments(
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--omp-only", action="store_true")
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument(
+        "--output",
+        default="out.json",
+        help="QlAb decomposition JSON path (default: out.json)",
+    )
     return parser
 
 
@@ -1313,6 +1317,7 @@ def eligible_partitions(
 def run_target_search(
     args: argparse.Namespace,
     target_builder: TargetBuilder,
+    target_spec: dict[str, object],
 ) -> PartitionSearchResult | None:
     """Run the standard partition/trial pipeline for an orbit-basis target.
 
@@ -1320,7 +1325,8 @@ def run_target_search(
     block-weight orbit of ``ns``, or an orbit-by-k matrix whose columns span a
     family of targets.  In the latter case the search minimizes the Frobenius
     residual of the whole target subspace.  Target scripts can therefore
-    remain tiny and contain no search-engine policy.
+    remain tiny and contain no search-engine policy.  The best decomposition
+    found is written to ``args.output`` in the common QlAb JSON format.
     """
     if args.workers < 1:
         raise SystemExit("--workers must be positive")
@@ -1350,24 +1356,42 @@ def run_target_search(
         for ns in partitions
     ]
 
+    best: PartitionSearchResult | None = None
     if args.workers == 1:
         for task in tasks:
             result = _partition_worker(task)
+            if best is None or result.residual < best.residual:
+                best = result
             if report_partition_result(result, args.tolerance):
-                return result
-        return None
+                break
+    else:
+        context = mp.get_context("spawn")
+        pool = context.Pool(processes=min(args.workers, len(tasks)))
+        terminated = False
+        try:
+            for result in pool.imap_unordered(_partition_worker, tasks):
+                if best is None or result.residual < best.residual:
+                    best = result
+                if report_partition_result(result, args.tolerance):
+                    pool.terminate()
+                    terminated = True
+                    break
+        finally:
+            if not terminated:
+                pool.close()
+            pool.join()
 
-    context = mp.get_context("spawn")
-    pool = context.Pool(processes=min(args.workers, len(tasks)))
-    terminated = False
-    try:
-        for result in pool.imap_unordered(_partition_worker, tasks):
-            if report_partition_result(result, args.tolerance):
-                pool.terminate()
-                terminated = True
-                return result
-    finally:
-        if not terminated:
-            pool.close()
-        pool.join()
-    return None
+    if best is not None and best.indices:
+        from stab_export import save_decomposition_json
+
+        target = np.asarray(target_builder(best.partition))
+        save_decomposition_json(
+            args.output,
+            partition=best.partition,
+            indices=best.indices,
+            target=target,
+            target_spec=target_spec,
+            residual=best.residual,
+        )
+        print(f"wrote QlAb decomposition to {args.output}")
+    return best
