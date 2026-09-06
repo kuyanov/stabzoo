@@ -12,6 +12,7 @@ from stab_search import add_search_arguments, run_target_search
 
 
 def _parity_bit(parity: str) -> int:
+    """Translate an ``even``/``odd`` label to its parity bit."""
     if parity == "even":
         return 0
     if parity == "odd":
@@ -52,6 +53,7 @@ def general_phase_cat_span(
 
 
 def argument_parser() -> argparse.ArgumentParser:
+    """Build the command-line parser for phase-cat searches."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--parity",
@@ -69,6 +71,7 @@ def argument_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    """Parse command-line arguments and run the requested search."""
     args = argument_parser().parse_args()
     parity = args.parity
     if args.phase is None:

@@ -26,12 +26,14 @@ def dicke_orbits(ns: Sequence[int], k: int) -> np.ndarray:
 
 
 def argument_parser() -> argparse.ArgumentParser:
+    """Build the command-line parser for Dicke-state searches."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--k", type=int, required=True, help="Dicke excitation number")
     return add_search_arguments(parser, partition_example="5+5")
 
 
 def main() -> None:
+    """Parse command-line arguments and run the requested search."""
     args = argument_parser().parse_args()
     if not 0 <= args.k <= args.n:
         raise SystemExit(f"--k must lie between 0 and n={args.n}")

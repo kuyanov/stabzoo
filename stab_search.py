@@ -41,20 +41,31 @@ _PAIR_SHORTLIST = 64
 
 
 class Progress(Protocol):
-    def update(self, n: int = 1) -> object: ...
+    """Minimal interface implemented by progress-bar objects."""
 
-    def close(self) -> object: ...
+    def update(self, n: int = 1) -> object:
+        """Advance the progress count by ``n``."""
+        ...
+
+    def close(self) -> object:
+        """Release resources associated with the progress display."""
+        ...
 
 
 class _NullProgress:
+    """No-op progress bar used when progress reporting is disabled."""
+
     def update(self, n: int = 1) -> None:
+        """Discard a progress increment."""
         del n
 
     def close(self) -> None:
+        """Close the no-op progress bar."""
         pass
 
 
 def _progress(total: int, enabled: bool) -> Progress:
+    """Create a tqdm progress bar, or a no-op replacement if unavailable."""
     if not enabled:
         return _NullProgress()
     try:
@@ -108,10 +119,12 @@ def _normalise_target(
 
 
 def _target_dimension(target: np.ndarray) -> int:
+    """Return one for a state target, or the number of subspace columns."""
     return 1 if target.ndim == 1 else target.shape[1]
 
 
 def _overlap_gains(overlap: np.ndarray) -> np.ndarray:
+    """Return squared correlation norms for all candidate atoms."""
     if overlap.ndim == 1:
         return np.abs(overlap) ** 2
     return np.sum(np.abs(overlap) ** 2, axis=1)
@@ -119,7 +132,11 @@ def _overlap_gains(overlap: np.ndarray) -> np.ndarray:
 
 @lru_cache(maxsize=1)
 def normalised_orbit_pool(ns: tuple[int, ...]) -> np.ndarray:
-    """Materialise normalized emitted atoms in weighted orbit coordinates."""
+    """Materialise all normalized emitted atoms in weighted orbit coordinates.
+
+    Columns follow the public emitted-index order and may contain duplicate
+    rays when a block has size one or two.  The cached result is read-only.
+    """
     multiplicities = orbit_multiplicities(ns)
     roots = np.sqrt(multiplicities).astype(np.float32)
     count = count_symmetric_stabilisers(ns)
@@ -162,7 +179,11 @@ class _WorkingPool:
 
 @lru_cache(maxsize=1)
 def normalised_search_pool(ns: tuple[int, ...]) -> SearchPool:
-    """Deduplicate small-block degeneracies and order atoms deterministically."""
+    """Return a deduplicated, deterministic dictionary for ``ns``.
+
+    The accompanying index maps translate between emitted indices and unique
+    dictionary columns, preserving the public indexing convention.
+    """
     full = normalised_orbit_pool(ns)
     rows, representatives, inverse = np.unique(
         full.T,
@@ -181,6 +202,7 @@ def normalised_search_pool(ns: tuple[int, ...]) -> SearchPool:
 
 @lru_cache(maxsize=8)
 def _batch_count(ns: tuple[int, ...]) -> int:
+    """Return the number of structural batches emitted for ``ns``."""
     return sum(1 for _ in gen_symmetric_stabiliser_batch_data(ns))
 
 
@@ -190,7 +212,11 @@ def _screened_pool(
     required_indices: Sequence[int],
     limit: int,
 ) -> _WorkingPool:
-    """Keep the best phase choices from every structural pool batch."""
+    """Build a target-screened dictionary of approximately ``limit`` atoms.
+
+    Every structural batch contributes its strongest phase choices, and all
+    ``required_indices`` are retained so that an OMP start remains available.
+    """
     batches = _batch_count(ns)
     quota = max(1, limit // batches)
     required = np.unique(np.asarray(required_indices, dtype=np.intp))
@@ -243,6 +269,8 @@ def _screened_pool(
 
 @dataclass(frozen=True)
 class _Geometry:
+    """Target and dictionary data residualized against a selected span."""
+
     basis: np.ndarray
     residual: np.ndarray
     squared_norm: np.ndarray
@@ -256,7 +284,11 @@ def _geometry(
     target: np.ndarray,
     selected: np.ndarray,
 ) -> _Geometry:
-    """Residualize both target and dictionary against a selected span."""
+    """Residualize the target and every dictionary atom against ``selected``.
+
+    The returned score is the squared target projection captured by the
+    selected span.  For a matrix target, scores are summed over its columns.
+    """
     if len(selected):
         basis, triangular = np.linalg.qr(pool[:, selected], mode="reduced")
         basis = basis[:, np.abs(np.diag(triangular)) > 1e-6]
@@ -280,7 +312,7 @@ def _complete_support(
     rng: np.random.Generator,
     shortlist: int,
 ) -> tuple[np.ndarray, float]:
-    """Conditionally complete ``retained`` to ``size`` by OMP."""
+    """Greedily extend ``retained`` to ``size`` independent atoms."""
     selected = list(map(int, retained))
     geometry = _geometry(pool, pool_adjoint, target, retained)
     basis = geometry.basis
@@ -291,7 +323,6 @@ def _complete_support(
 
     excluded = np.zeros(pool.shape[1], dtype=bool)
     excluded[retained] = True
-    joint_pair_move = size - len(retained) == 2
     while len(selected) < size:
         values = np.full(pool.shape[1], -np.inf, dtype=np.float32)
         valid = (~excluded) & (squared_norm > _INDEPENDENCE_TOL)
@@ -299,49 +330,6 @@ def _complete_support(
         available = int(np.count_nonzero(valid))
         if available == 0:
             break
-
-        # The last two atoms may be useful only as a pair.  Evaluate pairs
-        # among the strongest individual candidates instead of committing to
-        # the first atom greedily; this subsumes the old separate pair-polish.
-        if joint_pair_move and available >= 2:
-            width = min(_PAIR_SHORTLIST, available)
-            candidates = np.argpartition(values, -width)[-width:]
-            directions = pool[:, candidates] - basis @ (
-                basis.conj().T @ pool[:, candidates]
-            )
-            gram = directions.conj().T @ directions
-            diagonal = np.real(np.diag(gram))
-            pair_determinant = (
-                diagonal[:, None] * diagonal[None, :] - np.abs(gram) ** 2
-            )
-            correlations = overlap[candidates]
-            if correlations.ndim == 1:
-                correlations = correlations[:, None]
-            correlation_norm = np.sum(np.abs(correlations) ** 2, axis=1)
-            correlation_cross = correlations.conj() @ correlations.T
-            pair_gain = (
-                diagonal[None, :] * correlation_norm[:, None]
-                + diagonal[:, None] * correlation_norm[None, :]
-                - 2.0 * np.real(gram * correlation_cross)
-            )
-            independent = np.triu(
-                pair_determinant > _INDEPENDENCE_TOL, k=1
-            )
-            pair_gain = np.divide(
-                pair_gain,
-                pair_determinant,
-                out=np.full_like(pair_gain, -np.inf),
-                where=independent,
-            )
-            first, second = np.unravel_index(
-                int(np.argmax(pair_gain)), pair_gain.shape
-            )
-            if np.isfinite(pair_gain[first, second]):
-                selected.extend(
-                    (int(candidates[first]), int(candidates[second]))
-                )
-                score += float(pair_gain[first, second])
-                break
 
         width = min(max(1, shortlist), available)
         if width == 1:
@@ -382,12 +370,74 @@ def _complete_support(
     return np.asarray(selected, dtype=np.intp), score
 
 
+def _complete_pair(
+    pool: np.ndarray,
+    pool_adjoint: np.ndarray,
+    target: np.ndarray,
+    retained: np.ndarray,
+) -> tuple[np.ndarray, float]:
+    """Add the best pair from a shortlist to a retained support.
+
+    The gain is evaluated jointly, so this can cross local barriers where
+    neither new atom is useful on its own.  At most ``_PAIR_SHORTLIST`` atoms
+    are considered, keeping the quadratic pair calculation small.
+    """
+    geometry = _geometry(pool, pool_adjoint, target, retained)
+    valid = geometry.squared_norm > _INDEPENDENCE_TOL
+    valid[retained] = False
+    available = int(np.count_nonzero(valid))
+    if available < 2:
+        return retained.copy(), geometry.score
+
+    gains = np.full(pool.shape[1], -np.inf, dtype=np.float32)
+    gains[valid] = (
+        _overlap_gains(geometry.overlap[valid])
+        / geometry.squared_norm[valid]
+    )
+    width = min(_PAIR_SHORTLIST, available)
+    candidates = np.argpartition(gains, -width)[-width:]
+    directions = pool[:, candidates] - geometry.basis @ (
+        geometry.basis.conj().T @ pool[:, candidates]
+    )
+    gram = directions.conj().T @ directions
+    diagonal = np.real(np.diag(gram))
+    determinant = (
+        diagonal[:, None] * diagonal[None, :] - np.abs(gram) ** 2
+    )
+
+    correlations = geometry.overlap[candidates]
+    if correlations.ndim == 1:
+        correlations = correlations[:, None]
+    correlation_norm = np.sum(np.abs(correlations) ** 2, axis=1)
+    correlation_cross = correlations.conj() @ correlations.T
+    pair_gain = (
+        diagonal[None, :] * correlation_norm[:, None]
+        + diagonal[:, None] * correlation_norm[None, :]
+        - 2.0 * np.real(gram * correlation_cross)
+    )
+    independent = np.triu(determinant > _INDEPENDENCE_TOL, k=1)
+    pair_gain = np.divide(
+        pair_gain,
+        determinant,
+        out=np.full_like(pair_gain, -np.inf),
+        where=independent,
+    )
+    first, second = np.unravel_index(
+        int(np.argmax(pair_gain)), pair_gain.shape
+    )
+    gain = float(pair_gain[first, second])
+    if not np.isfinite(gain):
+        return retained.copy(), geometry.score
+    selected = np.append(retained, candidates[[first, second]])
+    return selected.astype(np.intp, copy=False), geometry.score + gain
+
+
 def _deletion_losses(
     pool: np.ndarray,
     target: np.ndarray,
     selected: np.ndarray,
 ) -> np.ndarray:
-    """Exact projection-score loss caused by deleting each atom."""
+    """Return the exact projection-score loss from deleting each selected atom."""
     atoms = pool[:, selected]
     gram = atoms.conj().T @ atoms
     inverse = np.linalg.pinv(gram, rcond=_PINV_RCOND, hermitian=True)
@@ -406,6 +456,7 @@ def _prune_support(
     selected: np.ndarray,
     size: int,
 ) -> np.ndarray:
+    """Delete minimum-loss atoms until ``selected`` has the requested size."""
     selected = selected.copy()
     while len(selected) > size:
         loss = _deletion_losses(pool, target, selected)
@@ -419,7 +470,7 @@ def _accurate_residual(
     target: np.ndarray,
     selected: np.ndarray,
 ) -> float:
-    """Verify a selected span in complex128, undoing search normalization."""
+    """Recompute the residual in complex128 from exact encoded atom phases."""
     approximate = pool[:, selected]
     support = approximate != 0
     phase = np.zeros(approximate.shape, dtype=np.complex128)
@@ -442,6 +493,7 @@ def _validate_problem(
     target: np.ndarray,
     rank: int,
 ) -> tuple[tuple[int, ...], np.ndarray, float]:
+    """Validate inputs and return the partition, unit target, and target norm."""
     ns_tuple = tuple(map(int, ns))
     if not ns_tuple or any(value <= 0 for value in ns_tuple):
         raise ValueError("ns must contain positive block sizes")
@@ -468,14 +520,17 @@ class _OmpGroup:
 
     @property
     def structure_count(self) -> int:
+        """Number of affine-support/block-mode structures in the group."""
         return len(self.structure_offsets) - 1
 
     @property
     def phase_count(self) -> int:
+        """Number of core quadratic phases available per structure."""
         return len(self.phases)
 
     @property
     def emitted_count(self) -> int:
+        """Total number of emitted atoms in the group."""
         return self.structure_count * self.phase_count
 
 
@@ -612,6 +667,7 @@ def _selected_group(
     groups: tuple[_OmpGroup, ...],
     emitted_index: int,
 ) -> _OmpGroup:
+    """Locate the packed group containing an emitted dictionary index."""
     for group in groups:
         if emitted_index < group.start + group.emitted_count:
             return group
@@ -626,7 +682,11 @@ def _factored_omp(
     seed: int,
     verbose: bool,
 ) -> tuple[list[int], float]:
-    """OMP over the complete dictionary without materialising the dictionary."""
+    """Run OMP over the complete dictionary without materialising it.
+
+    Structures of equal core dimension are packed together, allowing all
+    correlations to be evaluated with a handful of dense transforms.
+    """
     roots = np.sqrt(orbit_multiplicities(ns)).astype(np.float32)
     groups = _omp_groups(ns)
     emitted_count = sum(group.emitted_count for group in groups)
@@ -734,10 +794,14 @@ def omp(
     oversample: int = 0,
     materialise_limit: int = 200_000,
 ) -> tuple[list[int], float]:
-    """Orthogonal matching pursuit in the weighted orbit basis.
+    """Approximate ``target`` with ``rank`` symmetric stabiliser atoms.
 
-    ``materialise_limit`` is retained for API compatibility; OMP now always
-    uses the same compressed implementation.
+    OMP operates in the weighted block-orbit basis and returns emitted-pool
+    indices together with the residual norm in the original target scaling.
+    ``oversample`` permits extra atoms before minimum-loss pruning.
+
+    ``materialise_limit`` is retained for API compatibility; the current OMP
+    implementation always uses the packed dictionary.
     """
     ns_tuple, unit_target, norm = _validate_problem(ns, target, rank)
     if oversample < 0:
@@ -758,6 +822,8 @@ def omp(
 
 @dataclass
 class _SearchState:
+    """Current and best supports maintained by simulated annealing."""
+
     current: np.ndarray
     current_score: float
     best: np.ndarray
@@ -772,7 +838,7 @@ def _removed_positions(
     iteration: int,
     rng: np.random.Generator,
 ) -> np.ndarray:
-    """Mix unbiased destruction with coefficient-guided destruction."""
+    """Choose support positions using alternating random and guided deletion."""
     if iteration % 3 == 0:
         return rng.choice(len(selected), count, replace=False)
     loss = _deletion_losses(pool, target, selected)
@@ -796,7 +862,11 @@ def _large_neighbourhood_search(
     multiplicities: np.ndarray,
     verbose: bool,
 ) -> tuple[np.ndarray, float]:
-    """Ruin and conditionally rebuild several support coordinates at once."""
+    """Improve a support by repeatedly destroying and conditionally repairing it.
+
+    Complete repaired supports are accepted with a geometric temperature
+    schedule.  The best support is verified in complex128 before returning.
+    """
     pool_adjoint = pool.conj().T
     search_target = target.astype(np.complex64)
     initial_score = _geometry(
@@ -882,12 +952,15 @@ def _pair_polish(
     relative_tolerance: float,
     multiplicities: np.ndarray,
 ) -> tuple[np.ndarray, float]:
-    """Deterministically improve a support by replacing two atoms at a time."""
+    """Sweep over all two-atom deletions and insert each best completing pair.
+
+    This deterministic local search is restricted to modest dictionaries by
+    :func:`sparse_search`, because a pass requires ``rank choose 2`` repairs.
+    """
     pool_adjoint = pool.conj().T
     current = selected.copy()
     current_score = _geometry(pool, pool_adjoint, target, current).score
     rank = len(current)
-    rng = np.random.default_rng(0)
 
     for _ in range(max(0, passes)):
         improved = False
@@ -895,14 +968,11 @@ def _pair_polish(
             for second in range(first + 1, rank):
                 keep = np.ones(rank, dtype=bool)
                 keep[[first, second]] = False
-                trial, score = _complete_support(
+                trial, score = _complete_pair(
                     pool,
                     pool_adjoint,
                     target,
                     current[keep],
-                    rank,
-                    rng,
-                    shortlist=1,
                 )
                 if len(trial) != rank or score <= current_score + 1e-7:
                     continue
@@ -919,6 +989,55 @@ def _pair_polish(
             break
 
     return current, _accurate_residual(pool, multiplicities, target, current)
+
+
+def _prepare_search_pool(
+    ns: tuple[int, ...],
+    target: np.ndarray,
+    emitted: Sequence[int],
+    emitted_count: int,
+    materialise_limit: int,
+    working_pool_limit: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Prepare the LNS dictionary and translate its initial emitted indices.
+
+    Small dictionaries are materialised and deduplicated completely.  Large
+    dictionaries are screened against the target, while forcibly retaining
+    every atom in the initial support.
+
+    Returns
+    -------
+    pool
+        Normalized dictionary columns in weighted orbit coordinates.
+    selected
+        Initial support as column indices into ``pool``.
+    output_indices
+        Map from dictionary columns back to public emitted indices.
+    """
+    emitted_array = np.asarray(emitted, dtype=np.intp)
+    if np.any((emitted_array < 0) | (emitted_array >= emitted_count)):
+        raise ValueError("initial index outside the emitted stabiliser pool")
+
+    if emitted_count <= materialise_limit:
+        complete = normalised_search_pool(ns)
+        selected = complete.full_to_unique[emitted_array]
+        if len(np.unique(selected)) != len(selected):
+            raise ValueError("initial_indices contain repeated stabiliser rays")
+        return complete.vectors, selected, complete.representatives
+
+    working = _screened_pool(
+        ns, target, emitted_array, working_pool_limit
+    )
+    locations = {
+        int(index): position
+        for position, index in enumerate(working.emitted_indices)
+    }
+    selected = np.fromiter(
+        (locations[int(index)] for index in emitted_array),
+        dtype=np.intp,
+        count=len(emitted_array),
+    )
+    return working.vectors, selected, working.emitted_indices
 
 
 def sparse_search(
@@ -942,11 +1061,16 @@ def sparse_search(
     pair_pool_limit: int = 5000,
     verbose: bool = False,
 ) -> tuple[list[int], float]:
-    """Search for a rank-``rank`` stabiliser approximation.
+    """Search for a rank-``rank`` symmetric stabiliser approximation.
 
-    Every iteration removes one of ``destroy_sizes`` atoms and conditionally
-    refills the holes. Temperatures apply to complete repaired supports, not
-    to individual atoms.
+    The pipeline consists of packed OMP, one simulated-annealing
+    large-neighbourhood search, and (for small dictionaries) deterministic
+    two-atom polishing.  Every LNS iteration removes one of ``destroy_sizes``
+    atoms and refills the holes by conditional OMP.  Temperatures apply to
+    complete repaired supports rather than individual insertions.
+
+    Returns emitted-pool indices and the residual norm in the original target
+    scaling.  A residual at most ``exact_tol`` is returned as exactly zero.
     """
     ns_tuple, unit_target, norm = _validate_problem(ns, target, rank)
     if norm == 0.0 or rank == 0:
@@ -983,36 +1107,14 @@ def sparse_search(
         return emitted, float(norm * initial_residual)
     if len(emitted) != rank:
         raise ValueError("initial_indices must contain exactly rank entries")
-    emitted_array = np.asarray(emitted, dtype=np.intp)
-    if np.any((emitted_array < 0) | (emitted_array >= emitted_count)):
-        raise ValueError("initial index outside the emitted stabiliser pool")
-    if emitted_count <= materialise_limit:
-        complete_pool = normalised_search_pool(ns_tuple)
-        pool = complete_pool.vectors
-        selected = complete_pool.full_to_unique[emitted_array]
-        output_indices = complete_pool.representatives
-        if len(np.unique(selected)) != rank:
-            raise ValueError("initial_indices contain repeated stabiliser rays")
-    else:
-        working = _screened_pool(
-            ns_tuple,
-            unit_target,
-            emitted_array,
-            working_pool_limit,
-        )
-        pool = working.vectors
-        locations = {
-            int(value): position
-            for position, value in enumerate(working.emitted_indices)
-        }
-        selected = np.asarray(
-            [locations[int(value)] for value in emitted_array],
-            dtype=np.intp,
-        )
-        output_indices = working.emitted_indices
-
-    effective_shortlist = repair_shortlist
-    effective_destroy_sizes = tuple(map(int, destroy_sizes))
+    pool, selected, output_indices = _prepare_search_pool(
+        ns_tuple,
+        unit_target,
+        emitted,
+        emitted_count,
+        materialise_limit,
+        working_pool_limit,
+    )
     selected, relative_residual = _large_neighbourhood_search(
         pool,
         unit_target,
@@ -1020,8 +1122,8 @@ def sparse_search(
         np.random.default_rng(seed),
         iterations=iterations,
         epoch_length=epoch_length,
-        destroy_sizes=effective_destroy_sizes,
-        repair_shortlist=effective_shortlist,
+        destroy_sizes=destroy_sizes,
+        repair_shortlist=repair_shortlist,
         start_temperature=start_temperature,
         end_temperature=end_temperature,
         relative_tolerance=exact_tol / norm,

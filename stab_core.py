@@ -1,3 +1,10 @@
+"""Generation and orbit encoding of partition-symmetric stabiliser states.
+
+The routines in this module contain no search policy.  They enumerate compact
+affine/quadratic descriptions and convert between computational-basis and
+block-weight-orbit coordinates.
+"""
+
 from collections.abc import Iterator, Sequence
 
 from functools import cache, lru_cache
@@ -8,8 +15,10 @@ import numpy as np
 
 
 def gen_rrefs(n: int, r: int) -> Iterator[np.ndarray]:
-    """
-    Generate all rank-r, r-by-n matrices in reduced row echelon form.
+    """Yield all rank-``r`` binary ``r``-by-``n`` matrices in RREF.
+
+    The matrices enumerate the ``r``-dimensional subspaces of ``GF(2)^n``
+    exactly once.
     """
     for pivot_cols in combinations(range(n), r):
         cnt_free = n * r - sum(pivot_cols) - r * (r + 1) // 2
@@ -28,6 +37,11 @@ def gen_rrefs(n: int, r: int) -> Iterator[np.ndarray]:
 
 
 def canonical_cs(BT: np.ndarray) -> Iterator[np.ndarray]:
+    """Yield canonical representatives of the cosets of ``rowspan(BT)``.
+
+    ``BT`` must be in reduced row-echelon form.  A representative is fixed to
+    zero in every pivot coordinate and is arbitrary in the free coordinates.
+    """
     d, k = BT.shape
     pivots = [int(np.flatnonzero(BT[r])[0]) for r in range(d)]
     free = [a for a in range(k) if a not in pivots]
@@ -38,13 +52,11 @@ def canonical_cs(BT: np.ndarray) -> Iterator[np.ndarray]:
 
 
 def count_symmetric_stabilisers(ns: Sequence[int]) -> int:
-    """
-    Count the states emitted by the canonical generator.
+    """Count states emitted for the block partition ``ns``.
 
     This is also the number of distinct stabiliser rays when every block has
-    size at least three.  Blocks of size one or two have additional
-    active/inactive
-    degeneracies.
+    size at least three.  Blocks of size one or two have active/inactive
+    degeneracies, which the generator intentionally retains.
     """
     k = len(ns)
     cnt = 0
@@ -54,10 +66,9 @@ def count_symmetric_stabilisers(ns: Sequence[int]) -> int:
 
 
 def orbit_weights(ns: Sequence[int]) -> np.ndarray:
-    """
-    Return the block-weight tuples in the order used by the orbit routines.
+    """Return block-weight tuples in the canonical orbit order.
 
-    The result has shape (prod_a (n_a + 1), len(ns)).
+    The returned array has shape ``(prod_a (n_a + 1), len(ns))``.
     """
     ns = tuple(map(int, ns))
     shape = tuple(n + 1 for n in ns)
@@ -65,7 +76,7 @@ def orbit_weights(ns: Sequence[int]) -> np.ndarray:
 
 
 def orbit_multiplicities(ns: Sequence[int]) -> np.ndarray:
-    """Number of computational-basis strings in each block-weight orbit."""
+    """Return the number of bit strings in each block-weight orbit."""
     ns = tuple(map(int, ns))
     weights = orbit_weights(ns)
     result = np.ones(len(weights), dtype=np.int64)
@@ -84,11 +95,11 @@ _CONJ_PHASES = _PHASES.conj()
 
 @cache
 def core_phase_table(d: int) -> np.ndarray:
-    """
-    All phases l.y + 2 y^T Q y mod 4 on F_2^d.
+    """Return all quadratic stabiliser phases on ``GF(2)^d``.
 
-    Rows enumerate (l,Q), columns are little-endian integer encodings of y.
-    The shape is (4^d 2^binom(d,2), 2^d).
+    Rows enumerate ``(l, Q)`` and columns use little-endian integer encodings
+    of ``y``.  The entries are ``l.y + 2 y^T Q y (mod 4)`` and the shape is
+    ``(4**d * 2**binom(d, 2), 2**d)``.
     """
     y_int = np.arange(1 << d, dtype=np.int64)
     y = ((y_int[:, None] >> np.arange(d)) & 1).astype(np.int8)
@@ -108,7 +119,8 @@ def core_phase_table(d: int) -> np.ndarray:
     else:
         quadratic = np.zeros((1, 1 << d), dtype=np.int8)
 
-    table = ((linear[:, None, :] + quadratic[None, :, :]) & 3).reshape(-1, 1 << d)
+    table = ((linear[:, None, :] + quadratic[None, :, :])
+             & 3).reshape(-1, 1 << d)
     table = table.astype(np.int8, copy=False)
     table.flags.writeable = False
     return table
@@ -116,15 +128,21 @@ def core_phase_table(d: int) -> np.ndarray:
 
 @cache
 def core_conjugate_phase_table(d: int) -> np.ndarray:
-    """Complex conjugates of all core phase functions, cached by d."""
+    """Return complex conjugates of :func:`core_phase_table`, cached by ``d``."""
     table = _CONJ_PHASES[1 + core_phase_table(d)]
     table.flags.writeable = False
     return table
 
 
 @lru_cache(maxsize=8)
-def orbit_mode_tables(ns: tuple[int, ...]):
-    """Precompute support/phase data for the three modes of every block."""
+def orbit_mode_tables(
+    ns: tuple[int, ...],
+) -> tuple[tuple[np.ndarray, np.ndarray, np.ndarray], ...]:
+    """Return support and internal-phase tables for all block-mode choices.
+
+    Each block has one inactive mode and two active modes, distinguished by
+    the optional symmetric internal quadratic phase.
+    """
     k = len(ns)
     ns_array = np.asarray(ns, dtype=np.int16)
     weights = orbit_weights(ns)
@@ -151,9 +169,10 @@ def orbit_mode_tables(ns: tuple[int, ...]):
     return tuple(result)
 
 
-def gen_symmetric_stabiliser_batch_data(ns: tuple[int, ...]):
-    """
-    Yield the factored data underlying each stabiliser batch.
+def gen_symmetric_stabiliser_batch_data(
+    ns: tuple[int, ...],
+) -> Iterator[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
+    """Yield factored data underlying each stabiliser batch.
 
     Each item is ``(core_phases, columns, orbit_y, internal_phase)``. For a
     row r and a valid orbit j, its phase exponent is
@@ -191,8 +210,7 @@ def gen_symmetric_stabiliser_batch_data(ns: tuple[int, ...]):
 
 
 def gen_symmetric_stabilisers_batched(ns: Sequence[int]) -> Iterator[np.ndarray]:
-    """
-    Yield the symmetric stabiliser pool in vectorised batches.
+    """Yield the symmetric stabiliser pool in vectorised batches.
 
     An amplitude is encoded as 0, or 1+p for i^p. Columns are block-weight
     orbits in ``orbit_weights(ns)`` order. Each batch contains every core
@@ -208,13 +226,14 @@ def gen_symmetric_stabilisers_batched(ns: Sequence[int]) -> Iterator[np.ndarray]
         core_phases, columns, orbit_y, internal_phase = data
         n_phases = len(core_phases)
         batch = np.zeros((n_phases, n_orbits), dtype=np.int8)
-        batch[:, columns] = 1 + ((core_phases[:, orbit_y] + internal_phase) & 3)
+        batch[:, columns] = 1 + \
+            ((core_phases[:, orbit_y] + internal_phase) & 3)
         yield batch
 
 
 @lru_cache(maxsize=2)
-def basis_to_orbit(ns: tuple[int, ...]):
-    """Map each computational-basis index to its block-weight orbit index."""
+def basis_to_orbit(ns: tuple[int, ...]) -> np.ndarray:
+    """Map every computational-basis index to its block-weight orbit."""
     n = sum(ns)
     x = np.arange(1 << n, dtype=np.int64)
     weights = []
@@ -228,8 +247,7 @@ def basis_to_orbit(ns: tuple[int, ...]):
 
 
 def target_in_orbit_basis(ns: tuple[int, ...], target: np.ndarray) -> np.ndarray:
-    """
-    Return one target amplitude per block-weight orbit.
+    """Return one target amplitude per block-weight orbit.
 
     An orbit-sized target is returned directly.  A computational-basis target
     is averaged within each orbit.  Averaging is exact for symmetric targets;
@@ -267,7 +285,7 @@ def target_in_orbit_basis(ns: tuple[int, ...], target: np.ndarray) -> np.ndarray
 
 
 def decode_orbits(encoded_orbits: np.ndarray, ns: Sequence[int]) -> np.ndarray:
-    """Expand encoded orbit amplitudes into the computational basis."""
+    """Expand encoded orbit amplitudes into computational-basis amplitudes."""
     ns = tuple(map(int, ns))
     phases = np.asarray(encoded_orbits)[..., basis_to_orbit(ns)]
     return _PHASES[phases]
@@ -278,7 +296,7 @@ def integer_partitions_fixed_length(
     m: int,
     lo: int = 1,
 ) -> Iterator[tuple[int, ...]]:
-    """Nondecreasing m-part partitions of n."""
+    """Yield nondecreasing ``m``-part integer partitions of ``n``."""
     if m == 1:
         if n >= lo:
             yield (n,)
@@ -292,7 +310,7 @@ def integer_partitions_fixed_length(
 
 
 def gen_partitions(n: int, max_parts: int) -> list[tuple[int, ...]]:
-    """All partitions of n, with number of parts ranging from 1 to max_parts."""
+    """Return partitions of ``n`` having between one and ``max_parts`` parts."""
     parts = []
     for m in range(1, max_parts + 1):
         parts.extend(integer_partitions_fixed_length(n, m))

@@ -25,11 +25,13 @@ def T_state_orbits(ns: Sequence[int]) -> np.ndarray:
 
 
 def argument_parser() -> argparse.ArgumentParser:
+    """Build the command-line parser for T-product searches."""
     parser = argparse.ArgumentParser(description=__doc__)
     return add_search_arguments(parser, partition_example="1+5+5")
 
 
 def main() -> None:
+    """Parse command-line arguments and run the requested search."""
     run_target_search(argument_parser().parse_args(), T_state_orbits)
 
 
