@@ -139,7 +139,7 @@ def _compact_to_qlab(
     for block, (offset, size) in enumerate(zip(offsets, ns)):
         start = int(offset)
         if active[block]:
-            physical_to_core[block, start:start + size] = 1
+            physical_to_core[block, start : start + size] = 1
         else:
             physical_to_core[block, start] = 1
 
@@ -185,9 +185,7 @@ def _compact_to_qlab(
         offset64 = affine_offset.astype(np.int64)
         substituted = (map64.T @ quadratic64 @ map64) & 1
         Q ^= np.triu((substituted ^ substituted.T).astype(np.uint8), k=1)
-        cross = (
-            map64.T @ (((quadratic64 + quadratic64.T) @ offset64) & 1)
-        ) & 1
+        cross = (map64.T @ (((quadratic64 + quadratic64.T) @ offset64) & 1)) & 1
         diagonal = np.diag(substituted).astype(np.uint8) ^ cross.astype(np.uint8)
         Q[np.diag_indices(n)] ^= diagonal
 
@@ -201,7 +199,8 @@ def _compact_to_qlab(
 
     global_phase = (
         int(linear.astype(np.int64) @ affine_offset.astype(np.int64))
-        + 2 * int(
+        + 2
+        * int(
             affine_offset.astype(np.int64)
             @ quadratic.astype(np.int64)
             @ affine_offset.astype(np.int64)
@@ -238,9 +237,7 @@ def qlab_terms_from_indices(
                         and requested[next_requested] < batch_end
                     ):
                         pool_index = requested[next_requested]
-                        linear, quadratic = _decode_core_phase(
-                            d, pool_index - emitted
-                        )
+                        linear, quadratic = _decode_core_phase(d, pool_index - emitted)
                         modes = np.asarray(mode_tuple, dtype=np.int8)
                         active = modes != 0
                         internal_q = np.maximum(modes[active] - 1, 0)
@@ -279,7 +276,7 @@ def _orbit_representatives(ns: tuple[int, ...]) -> np.ndarray:
     offset = 0
     for block, size in enumerate(ns):
         for row, weight in enumerate(weights[:, block]):
-            representatives[row, offset:offset + int(weight)] = 1
+            representatives[row, offset : offset + int(weight)] = 1
         offset += size
     return representatives
 
@@ -294,9 +291,9 @@ def _qlab_orbit_codes(ns: tuple[int, ...], terms: Sequence[QlAbTerm]) -> np.ndar
         else:
             valid = np.ones(len(x), dtype=bool)
         linear = (x.astype(np.int64) @ term.l.astype(np.int64)) & 3
-        quadratic = np.einsum(
-            "bi,ij,bj->b", x, term.Q, x, optimize=True
-        ).astype(np.int64) & 1
+        quadratic = (
+            np.einsum("bi,ij,bj->b", x, term.Q, x, optimize=True).astype(np.int64) & 1
+        )
         encoded[valid, column] = 1 + ((linear[valid] + 2 * quadratic[valid]) & 3)
     return encoded
 
@@ -341,6 +338,27 @@ def _solve_exact(matrix: Any, target: Any) -> Any:
     return solution
 
 
+def _h_box_counts(ns: tuple[int, ...], m: int) -> np.ndarray:
+    """Count full contiguous H-boxes for every orbit of a refining partition."""
+    if m <= 0 or sum(ns) % m:
+        raise ValueError("H-box size must be positive and divide n")
+    weights = orbit_weights(ns)
+    sizes = np.asarray(ns)
+    counts = np.zeros(len(weights), dtype=np.int16)
+    position = 0
+    current: list[int] = []
+    for block, size in enumerate(ns):
+        if position // m != (position + size - 1) // m:
+            raise ValueError("partition crosses an H-box boundary")
+        current.append(block)
+        position += size
+        if position % m == 0:
+            columns = np.asarray(current, dtype=np.intp)
+            counts += np.all(weights[:, columns] == sizes[columns], axis=1)
+            current = []
+    return counts
+
+
 def _exact_coefficients(
     ns: tuple[int, ...],
     codes: np.ndarray,
@@ -355,12 +373,14 @@ def _exact_coefficients(
     if kind in {"T_product", "T_cat"}:
         omega = (1 + sp.I) / sp.sqrt(2)
         parity = None if kind == "T_product" else int(target_spec.get("parity", 0))
-        target = sp.Matrix([
-            omega**int(weight)
-            if parity is None or int(weight) % 2 == parity
-            else 0
-            for weight in weights
-        ])
+        target = sp.Matrix(
+            [
+                omega ** int(weight)
+                if parity is None or int(weight) % 2 == parity
+                else 0
+                for weight in weights
+            ]
+        )
         solution = _solve_exact(matrix, target)
         expressions = [
             sp.sstr(sp.radsimp(sp.simplify(solution[row, 0])))
@@ -372,22 +392,48 @@ def _exact_coefficients(
         excitation = int(target_spec["k"])
         target = sp.Matrix([int(weight == excitation) for weight in weights])
         solution = _solve_exact(matrix, target)
-        expressions = [sp.sstr(sp.simplify(solution[row, 0]))
-                       for row in range(solution.rows)]
+        expressions = [
+            sp.sstr(sp.simplify(solution[row, 0])) for row in range(solution.rows)
+        ]
         return expressions, "Q(I)"
 
-    if kind in {"phase_product", "phase_cat"} and target_spec.get("family"):
-        symbol = sp.Symbol(str(target_spec.get("symbol", "w")))
+    if kind == "H_product" and target_spec.get("family") is False:
+        parameter = sp.sympify(str(target_spec["a"]), locals={"I": sp.I})
+        real, imaginary = sp.expand_complex(parameter).as_real_imag()
+        if not (real.is_Rational and imaginary.is_Rational):
+            return None
+        exponents = _h_box_counts(ns, int(target_spec["m"]))
+        target = sp.Matrix([parameter ** int(exponent) for exponent in exponents])
+        solution = _solve_exact(matrix, target)
+        expressions = [
+            sp.sstr(sp.simplify(solution[row, 0])) for row in range(solution.rows)
+        ]
+        return expressions, "Q(I)"
+
+    if kind in {"phase_product", "phase_cat", "H_product"} and target_spec.get(
+        "family"
+    ):
+        default_symbol = "a" if kind == "H_product" else "w"
+        symbol = sp.Symbol(str(target_spec.get("symbol", default_symbol)))
         if kind == "phase_product":
             degrees = list(range(sum(ns) + 1))
-        else:
+            exponents = weights
+        elif kind == "phase_cat":
             parity = int(target_spec.get("parity", 0))
             degrees = list(range(parity, sum(ns) + 1, 2))
+            exponents = weights
+        else:
+            m = int(target_spec["m"])
+            copies = sum(ns) // m
+            if int(target_spec["copies"]) != copies:
+                raise ValueError("H-box copy count is inconsistent with n and m")
+            degrees = list(range(copies + 1))
+            exponents = _h_box_counts(ns, m)
         degree_to_column = {degree: column for column, degree in enumerate(degrees)}
         target = sp.zeros(len(weights), len(degrees))
-        for row, weight in enumerate(weights):
-            if int(weight) in degree_to_column:
-                target[row, degree_to_column[int(weight)]] = 1
+        for row, exponent in enumerate(exponents):
+            if int(exponent) in degree_to_column:
+                target[row, degree_to_column[int(exponent)]] = 1
         solution = _solve_exact(matrix, target)
         expressions = []
         for row in range(solution.rows):
@@ -425,10 +471,12 @@ def _numeric_coefficients(
     if target.ndim == 1:
         target = target_in_orbit_basis(ns, target)
     elif target.ndim == 2:
-        target = np.column_stack([
-            target_in_orbit_basis(ns, target[:, column])
-            for column in range(target.shape[1])
-        ])
+        target = np.column_stack(
+            [
+                target_in_orbit_basis(ns, target[:, column])
+                for column in range(target.shape[1])
+            ]
+        )
     else:
         raise ValueError("target must be a vector or matrix of target columns")
     weighted_target = target * roots if target.ndim == 1 else target * roots[:, None]
@@ -493,15 +541,17 @@ def save_decomposition_json(
 
     term_records = []
     for term, coefficient in zip(terms, coefficients):
-        term_records.append({
-            "pool_index": term.pool_index,
-            "coefficient": coefficient,
-            "Q": term.Q.astype(int).tolist(),
-            "l": term.l.astype(int).tolist(),
-            "A": term.A.astype(int).tolist(),
-            "b": term.b.astype(int).tolist(),
-            "support_size": term.support_size,
-        })
+        term_records.append(
+            {
+                "pool_index": term.pool_index,
+                "coefficient": coefficient,
+                "Q": term.Q.astype(int).tolist(),
+                "l": term.l.astype(int).tolist(),
+                "A": term.A.astype(int).tolist(),
+                "b": term.b.astype(int).tolist(),
+                "support_size": term.support_size,
+            }
+        )
 
     document = {
         "format": "stabzoo.QlAb.v1",
@@ -523,8 +573,7 @@ def save_decomposition_json(
                 "bit of the first block"
             ),
             "coefficient_syntax": (
-                "SymPy expression syntax using I, sqrt, exp, pi, and target "
-                "symbols"
+                "SymPy expression syntax using I, sqrt, exp, pi, and target symbols"
             ),
         },
         "terms": term_records,

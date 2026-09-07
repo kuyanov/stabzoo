@@ -16,7 +16,7 @@ import sympy as sp
 
 _PHASES = np.asarray([0, 1, 1j, -1, -1j], dtype=np.complex128)
 _EXPRESSION_CHARACTERS = re.compile(r"^[0-9A-Za-z+*/().\-\s]*$")
-_EXPRESSION_NAMES = {"I", "sqrt", "exp", "pi", "w", "e", "E"}
+_EXPRESSION_NAMES = {"I", "sqrt", "exp", "pi", "w", "a", "e", "E"}
 _NUMERICAL_TOLERANCE = 1e-10
 
 
@@ -218,6 +218,39 @@ def _orbit_weights(partition: tuple[int, ...]) -> np.ndarray:
     return np.indices(shape, dtype=np.int16).reshape(len(partition), -1).T
 
 
+def _h_box_counts(
+    partition: tuple[int, ...],
+    target: dict[str, Any],
+) -> np.ndarray:
+    """Count full H-boxes and validate their layout metadata."""
+    m = _integer(target.get("m"), "target.m")
+    copies = _integer(target.get("copies"), "target.copies")
+    _require(
+        m > 0 and sum(partition) % m == 0, "target.m must be positive and divide n"
+    )
+    _require(
+        copies == sum(partition) // m, "target.copies is inconsistent with n and m"
+    )
+
+    weights = _orbit_weights(partition)
+    sizes = np.asarray(partition)
+    counts = np.zeros(len(weights), dtype=np.int16)
+    position = 0
+    current: list[int] = []
+    for block, size in enumerate(partition):
+        _require(
+            position // m == (position + size - 1) // m,
+            "partition crosses a contiguous H-box boundary",
+        )
+        current.append(block)
+        position += size
+        if position % m == 0:
+            columns = np.asarray(current, dtype=np.intp)
+            counts += np.all(weights[:, columns] == sizes[columns], axis=1)
+            current = []
+    return counts
+
+
 def _target_exact(
     partition: tuple[int, ...],
     target: dict[str, Any],
@@ -260,6 +293,16 @@ def _target_exact(
             else sp.Integer(0)
             for weight in total_weights
         ]
+    if kind == "H_product" and target.get("family") is True:
+        return [symbol ** int(count) for count in _h_box_counts(partition, target)]
+    if kind == "H_product" and target.get("family") is False:
+        parameter = _parse_expression(target.get("a"), {}, "target.a")
+        real, imaginary = sp.expand_complex(parameter).as_real_imag()
+        if real.is_Rational and imaginary.is_Rational:
+            return [
+                parameter ** int(count)
+                for count in _h_box_counts(partition, target)
+            ]
     return None
 
 
@@ -267,12 +310,14 @@ def _target_numeric(partition: tuple[int, ...], target: dict[str, Any]) -> np.nd
     """Construct numerical target amplitudes for a fixed general phase."""
     kind = target.get("type")
     _require(
-        kind in {"phase_product", "phase_cat"},
+        kind in {"phase_product", "phase_cat", "H_product"},
         f"unsupported numerical target type: {kind!r}",
     )
-    _require(
-        target.get("family") is False, "numerical phase target must set family=false"
-    )
+    _require(target.get("family") is False, "numerical target must set family=false")
+    if kind == "H_product":
+        a = complex(sp.N(_parse_expression(target.get("a"), {}, "target.a"), 18))
+        return np.asarray(a ** _h_box_counts(partition, target), dtype=np.complex128)
+
     phase = target.get("phase")
     _require(
         isinstance(phase, (int, float)) and not isinstance(phase, bool),
@@ -397,8 +442,12 @@ def verify_document(document: Any) -> tuple[bool, float, float]:
         coefficient_text.append(coefficient)
     orbit_codes = np.column_stack(columns)
 
-    symbol_name = str(target.get("symbol", "w"))
-    _require(symbol_name == "w", "the v1 coefficient symbol must be 'w'")
+    expected_symbol = "a" if target.get("type") == "H_product" else "w"
+    symbol_name = str(target.get("symbol", expected_symbol))
+    _require(
+        symbol_name == expected_symbol,
+        f"the v1 coefficient symbol must be {expected_symbol!r}",
+    )
     symbol = sp.Symbol(symbol_name)
     exact_target = _target_exact(partition, target, symbol)
     declared_exact = document.get("coefficients_exact")
@@ -407,10 +456,14 @@ def verify_document(document: Any) -> tuple[bool, float, float]:
         _require(
             declared_exact, "an exact target must have exact symbolic coefficients"
         )
-        uses_w = target.get("type") in {"phase_product", "phase_cat"}
+        uses_symbol = target.get("family") is True and target.get("type") in {
+            "phase_product",
+            "phase_cat",
+            "H_product",
+        }
         expected_ring = (
-            "Q(I)[w]"
-            if uses_w
+            f"Q(I)[{expected_symbol}]"
+            if uses_symbol
             else (
                 "Q(sqrt(2), I)"
                 if target.get("type") in {"T_product", "T_cat"}
@@ -421,7 +474,7 @@ def verify_document(document: Any) -> tuple[bool, float, float]:
             document.get("coefficient_ring") == expected_ring,
             f"coefficient_ring must be {expected_ring!r}",
         )
-        coefficient_symbols = {"w": symbol} if uses_w else {}
+        coefficient_symbols = {expected_symbol: symbol} if uses_symbol else {}
         _verify_exact(orbit_codes, coefficient_text, exact_target, coefficient_symbols)
         return True, 0.0, 0.0
 

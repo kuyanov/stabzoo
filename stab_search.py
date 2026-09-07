@@ -470,7 +470,17 @@ def _accurate_residual(
     selected: np.ndarray,
 ) -> float:
     """Recompute the residual in complex128 from exact encoded atom phases."""
-    approximate = pool[:, selected]
+    return _accurate_residual_from_atoms(
+        pool[:, selected], multiplicities, target
+    )
+
+
+def _accurate_residual_from_atoms(
+    approximate: np.ndarray,
+    multiplicities: np.ndarray,
+    target: np.ndarray,
+) -> float:
+    """Reconstruct selected atom phases and recompute their residual accurately."""
     support = approximate != 0
     phase = np.zeros(approximate.shape, dtype=np.complex128)
     phase[np.real(approximate) > 0] = 1.0
@@ -774,12 +784,15 @@ def _factored_omp(
 
     if not selected_vectors:
         return [], float(np.linalg.norm(target))
-    atoms = np.column_stack(selected_vectors).astype(np.complex128)
+    atoms = np.column_stack(selected_vectors)
     selected = np.arange(len(selected_ids), dtype=np.intp)
     selected = _prune_support(atoms, target, selected, rank)
     atoms = atoms[:, selected]
-    coefficients = np.linalg.lstsq(atoms, target, rcond=None)[0]
-    residual_norm = float(np.linalg.norm(target - atoms @ coefficients))
+    residual_norm = _accurate_residual_from_atoms(
+        atoms,
+        orbit_multiplicities(ns),
+        target,
+    )
     return [selected_ids[index] for index in selected], residual_norm
 
 
