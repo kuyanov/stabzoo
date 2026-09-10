@@ -20,7 +20,7 @@
 		\node [style=none] (17) at (7.25, -1) {};
 		\node [style=none] (18) at (7.25, -2) {};
 		\node [style=none] (19) at (8.5, 0) {$+$};
-		\node [style=none] (20) at (11.5, 0) {$2e^{2i\alpha}(e^{2i\alpha} + 1)$};
+		\node [style=none] (20) at (11.5, 0) {$2e^{i\alpha}(e^{2i\alpha} + 1)$};
 		\node [style=Z phase dot] (21) at (14.75, 0) {$\alpha$};
 		\node [style=X phase dot] (22) at (16, 0) {$\pi$};
 		\node [style=none] (23) at (17, 0) {};
@@ -29,7 +29,7 @@
 		\node [style=none] (26) at (17, -1) {};
 		\node [style=none] (27) at (17, -2) {};
 		\node [style=none] (28) at (18.25, 0) {$+$};
-		\node [style=none] (29) at (21.25, 0) {$2e^{2i\alpha}(e^{2i\alpha} - 1)$};
+		\node [style=none] (29) at (21.25, 0) {$2ie^{i\alpha}(e^{2i\alpha} - 1)$};
 		\node [style=Z phase dot] (30) at (24.5, 0) {$\alpha$};
 		\node [style=Z phase dot] (31) at (25.75, 0) {$-\frac{\pi}{2}$};
 		\node [style=X phase dot] (32) at (27, 0) {$\pi$};
