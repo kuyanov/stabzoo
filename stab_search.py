@@ -98,7 +98,8 @@ def _normalise_target(
         return orbit_target, unit.astype(np.complex128, copy=False), norm
 
     if target.ndim != 2:
-        raise ValueError("target must be a vector or a matrix of target columns")
+        raise ValueError(
+            "target must be a vector or a matrix of target columns")
     orbit_target = np.column_stack(
         [
             target_in_orbit_basis(ns, target[:, column])
@@ -884,7 +885,8 @@ def _large_neighbourhood_search(
     initial_score = _geometry(
         pool, pool_adjoint, search_target, initial
     ).score
-    state = _SearchState(initial.copy(), initial_score, initial.copy(), initial_score)
+    state = _SearchState(initial.copy(), initial_score,
+                         initial.copy(), initial_score)
     sizes = tuple(
         sorted({min(int(value), len(initial)) for value in destroy_sizes})
     )
@@ -1034,7 +1036,8 @@ def _prepare_search_pool(
         complete = normalised_search_pool(ns)
         selected = complete.full_to_unique[emitted_array]
         if len(np.unique(selected)) != len(selected):
-            raise ValueError("initial_indices contain repeated stabiliser rays")
+            raise ValueError(
+                "initial_indices contain repeated stabiliser rays")
         return complete.vectors, selected, complete.representatives
 
     working = _screened_pool(
@@ -1088,7 +1091,8 @@ def sparse_search(
     if norm == 0.0 or rank == 0:
         return [], norm
     if iterations < 0 or epoch_length <= 0:
-        raise ValueError("iterations must be nonnegative and epoch_length positive")
+        raise ValueError(
+            "iterations must be nonnegative and epoch_length positive")
     if start_temperature <= 0.0 or end_temperature <= 0.0:
         raise ValueError("temperatures must be positive")
     if repair_shortlist <= 0:
