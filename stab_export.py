@@ -14,13 +14,14 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from itertools import product
+from itertools import combinations
+from operator import index as integer_index
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from stab_core import canonical_cs, gen_rrefs, orbit_weights, target_in_orbit_basis
+from stab_core import orbit_weights, target_in_orbit_basis
 
 
 @dataclass(frozen=True)
@@ -213,60 +214,100 @@ def qlab_terms_from_indices(
     ns: Sequence[int],
     indices: Sequence[int],
 ) -> list[QlAbTerm]:
-    """Decode selected emitted-pool indices and convert them to QlAb atoms."""
-    partition = tuple(map(int, ns))
-    requested = sorted({int(index) for index in indices})
+    """Decode selected emitted-pool indices without enumerating preceding atoms.
+
+    Dimension, RREF, coset, mode and phase choices are unranked in the same
+    order as the public generator. Indices remain Python integers, including
+    dictionaries whose emitted count exceeds the machine integer range.
+    """
+    try:
+        if any(isinstance(size, (bool, np.bool_)) for size in ns):
+            raise TypeError
+        partition = tuple(integer_index(size) for size in ns)
+    except TypeError as error:
+        raise ValueError("partition must contain positive integers") from error
+    if not partition or any(size <= 0 for size in partition):
+        raise ValueError("partition must contain positive integers")
+    try:
+        if any(isinstance(index, (bool, np.bool_)) for index in indices):
+            raise TypeError
+        original = [integer_index(index) for index in indices]
+    except TypeError as error:
+        raise ValueError("pool indices must be integers") from error
+    requested = sorted(set(original))
     if len(requested) != len(indices):
         raise ValueError("a decomposition cannot contain repeated pool indices")
     if requested and requested[0] < 0:
         raise IndexError("pool indices must be nonnegative")
+    if not requested:
+        return []
+
+    k = len(partition)
+    mode_count = 3**k
+    groups = []
+    emitted = 0
+    for d in range(k + 1):
+        subspaces = sum(
+            1 << (k * d - sum(pivots) - d * (d + 1) // 2)
+            for pivots in combinations(range(k), d)
+        )
+        cosets = 1 << (k - d)
+        phase_count = 4**d * 2 ** (d * (d - 1) // 2)
+        end = emitted + subspaces * cosets * mode_count * phase_count
+        groups.append((emitted, end, d, cosets, phase_count))
+        emitted = end
+    missing = [index for index in requested if index >= emitted]
+    if missing:
+        raise IndexError(f"pool indices outside the emitted dictionary: {missing}")
 
     found: dict[int, QlAbTerm] = {}
-    next_requested = 0
-    emitted = 0
-    k = len(partition)
-    for d in range(k + 1):
-        phase_count = 4**d * 2 ** (d * (d - 1) // 2)
-        for BT in gen_rrefs(k, d):
-            basis = BT.T
-            for c in canonical_cs(BT):
-                for mode_tuple in product(range(3), repeat=k):
-                    batch_end = emitted + phase_count
-                    while (
-                        next_requested < len(requested)
-                        and requested[next_requested] < batch_end
-                    ):
-                        pool_index = requested[next_requested]
-                        linear, quadratic = _decode_core_phase(d, pool_index - emitted)
-                        modes = np.asarray(mode_tuple, dtype=np.int8)
-                        active = modes != 0
-                        internal_q = np.maximum(modes[active] - 1, 0)
-                        Q, l, A, b, _global_phase = _compact_to_qlab(
-                            partition,
-                            active,
-                            c,
-                            basis,
-                            linear,
-                            quadratic,
-                            internal_q,
-                        )
-                        support_dimension = d + sum(
-                            partition[a] - 1 for a in np.flatnonzero(active)
-                        )
-                        found[pool_index] = QlAbTerm(
-                            pool_index,
-                            Q,
-                            l,
-                            A,
-                            b,
-                            1 << support_dimension,
-                        )
-                        next_requested += 1
-                    emitted = batch_end
-                    if next_requested == len(requested):
-                        return [found[int(index)] for index in indices]
-    missing = requested[next_requested:]
-    raise IndexError(f"pool indices outside the emitted dictionary: {missing}")
+    group_number = 0
+    for pool_index in requested:
+        while pool_index >= groups[group_number][1]:
+            group_number += 1
+        start, _, d, cosets, phase_count = groups[group_number]
+        rref_code, remainder = divmod(
+            pool_index - start, cosets * mode_count * phase_count
+        )
+        coset_code, remainder = divmod(remainder, mode_count * phase_count)
+        mode_code, phase_index = divmod(remainder, phase_count)
+
+        for pivots in combinations(range(k), d):
+            free_count = k * d - sum(pivots) - d * (d + 1) // 2
+            count = 1 << free_count
+            if rref_code < count:
+                break
+            rref_code -= count
+        BT = np.zeros((d, k), dtype=np.int8)
+        pivot_set = set(pivots)
+        free_bit = free_count
+        for row, pivot in enumerate(pivots):
+            BT[row, pivot] = 1
+            for column in range(pivot + 1, k):
+                if column not in pivot_set:
+                    free_bit -= 1
+                    BT[row, column] = (rref_code >> free_bit) & 1
+
+        free_columns = [column for column in range(k) if column not in pivot_set]
+        c = np.zeros(k, dtype=np.int8)
+        for bit, column in enumerate(free_columns):
+            c[column] = (coset_code >> (len(free_columns) - 1 - bit)) & 1
+        modes = np.empty(k, dtype=np.int8)
+        for column in range(k - 1, -1, -1):
+            mode_code, modes[column] = divmod(mode_code, 3)
+        active = modes != 0
+        linear, quadratic = _decode_core_phase(d, phase_index)
+        Q, l, A, b, _global_phase = _compact_to_qlab(
+            partition, active, c, BT.T, linear, quadratic,
+            np.maximum(modes[active] - 1, 0),
+        )
+        support_dimension = d + sum(
+            partition[int(block)] - 1 for block in np.flatnonzero(active)
+        )
+        found[pool_index] = QlAbTerm(
+            pool_index, Q, l, A, b, 1 << support_dimension
+        )
+    return [found[index] for index in original]
 
 
 def _orbit_representatives(ns: tuple[int, ...]) -> np.ndarray:

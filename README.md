@@ -8,6 +8,10 @@ Example:
 OMP_NUM_THREADS=1 python3 search_T_product.py 10 18 --workers 4 --output example.json
 ```
 
+```
+OMP_NUM_THREADS=1 python3 search_H_product.py 10 17 --reduced-pool --output example.json
+```
+
 Verification:
 ```
 python3 verify_decomposition.py example.json
@@ -54,17 +58,6 @@ $n$ | $R$ | $\alpha$ | partition
  13 |  27 | 0.432    | 3+5+5
  14 |  27 | 0.396    | 4+5+5
 
-## CCZ product states
-
-Each copy is a three-legged $H_{-1}$ state. Here $k$ counts copies and $n=3k$ counts qubits.
-
-$k$ | $n$ | $R$ | partition
-----|-----|-----|----------
-  1 |   3 |   2 | 3
-  2 |   6 |   4 | 3+3
-  3 |   9 |   8 | 3+3+3
-  4 |  12 |  16 | 3+3+3+3
-
 ## General-phase states
 
 ### General-phase product states
@@ -104,6 +97,32 @@ $n$ | $R^+$ | $R^-$ | $\alpha$ | partition
  11 |    18 |    18 | 0.463    | 1+5+5
  12 |    23 |    22 | 0.452    | 2+5+5
  13 |    27 |    27 | 0.432    | 3+5+5
+
+## Products of H-boxes
+
+### Two-legged
+
+Rank upper bounds for the product two-legged $H_a$ state for arbitrary $a$ ($R$) and for $a = 0, -1$ ($R_0$, $R_{-1}$). The latter is known as the CS product state.
+
+$n$ | $R$ | $R_0$ | $R_{-1}$
+----|-----|-------|---------
+  2 |   2 |     2 |       2
+  4 |   3 |     3 |       3
+  6 |   6 |     5 |       6
+  8 |   9 |     9 |       9
+ 10 |  17 |    14 |      17
+ 12 |  27 |    23 |      27
+
+### Three-legged
+
+Rank upper bounds for the product three-legged $H_a$ state for arbitrary $a$ ($R$) and for $a = -1$ ($R_{-1}$). The latter is known as the CCZ product state.
+
+$n$ | $R$ | $R_{-1}$
+----|-----|---------
+  3 |   2 |       2
+  6 |   4 |       4
+  9 |   8 |       8
+ 12 |  16 |      16
 
 ## Dicke states $D^n_k$
 

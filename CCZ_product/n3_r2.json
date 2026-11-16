@@ -5,16 +5,16 @@
     3
   ],
   "rank": 2,
-  "search_residual": 0.0,
+  "search_residual": 1.1322097734007351e-15,
   "target": {
     "type": "H_product",
     "m": 3,
     "copies": 1,
-    "family": false,
-    "a": "-1",
     "normalization": "unnormalised",
     "box_order": "copies are contiguous m-qubit blocks",
-    "amplitude": "a**full_boxes"
+    "amplitude": "a**full_boxes",
+    "family": false,
+    "a": "(-1) + (0)*I"
   },
   "coefficient_ring": "Q(I)",
   "coefficients_exact": true,

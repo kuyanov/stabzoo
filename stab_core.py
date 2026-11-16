@@ -60,7 +60,13 @@ def count_symmetric_stabilisers(ns: Sequence[int]) -> int:
     k = len(ns)
     cnt = 0
     for d in range(k + 1):
-        cnt += 6**k * 2 ** (d * (d + 1) // 2) * len(list(gen_rrefs(k, d)))
+        # Each pivot pattern has this many assignments of its free entries.
+        # Count them without constructing the exponentially many RREF matrices.
+        subspaces = sum(
+            1 << (k * d - sum(pivots) - d * (d + 1) // 2)
+            for pivots in combinations(range(k), d)
+        )
+        cnt += 6**k * 2 ** (d * (d + 1) // 2) * subspaces
     return cnt
 
 

@@ -4,18 +4,17 @@
 An ``m``-qubit H-box has computational-basis amplitudes ``[1, ..., 1, a]``:
 only the all-one string has amplitude ``a``.  Copies are contiguous in the
 qubit order.  Omitting ``--a`` searches one decomposition valid symbolically
-for every ``a``.
+for every ``a``. The default automatically uses a small product subset of the
+repo's dictionary for intact boxes, or the full dictionary for refinements.
+All outputs are reconstructed exactly before they are written.
 """
 
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
 
-import numpy as np
-
-from stab_core import orbit_weights
-from stab_search import add_search_arguments, run_target_search
+from h_product_search import HProductSearchError, run_h_search
+from stab_search import add_search_arguments
 
 
 def _complex_parameter(text: str) -> complex:
@@ -24,75 +23,6 @@ def _complex_parameter(text: str) -> complex:
         return complex(text.strip().lower().replace("i", "j"))
     except ValueError as error:
         raise argparse.ArgumentTypeError(f"invalid complex value: {text!r}") from error
-
-
-def _box_block_groups(ns: Sequence[int], m: int) -> tuple[tuple[int, ...], ...]:
-    """Group partition blocks belonging to each contiguous ``m``-qubit box."""
-    partition = tuple(map(int, ns))
-    if m <= 0 or any(size <= 0 for size in partition) or sum(partition) % m:
-        raise ValueError("partition sizes and m must be positive, and m must divide n")
-
-    groups: list[tuple[int, ...]] = []
-    current: list[int] = []
-    position = 0
-    next_boundary = m
-    for block, size in enumerate(partition):
-        if position + size > next_boundary:
-            raise ValueError(
-                f"partition {'+'.join(map(str, partition))} crosses an H-box boundary"
-            )
-        current.append(block)
-        position += size
-        if position == next_boundary:
-            groups.append(tuple(current))
-            current = []
-            next_boundary += m
-    if current:
-        raise ValueError("partition does not refine the contiguous H-boxes")
-    return tuple(groups)
-
-
-def h_box_full_counts(ns: Sequence[int], m: int) -> np.ndarray:
-    """Count all-one H-boxes for every block-weight orbit of ``ns``."""
-    partition = tuple(map(int, ns))
-    groups = _box_block_groups(partition, m)
-    weights = orbit_weights(partition)
-    sizes = np.asarray(partition)
-    counts = np.zeros(len(weights), dtype=np.int16)
-    for group in groups:
-        columns = np.asarray(group, dtype=np.intp)
-        counts += np.all(weights[:, columns] == sizes[columns], axis=1)
-    return counts
-
-
-def h_box_product_orbits(ns: Sequence[int], m: int, a: complex) -> np.ndarray:
-    """Return orbit amplitudes of a product of fixed-parameter H-boxes."""
-    return np.asarray(a ** h_box_full_counts(ns, m), dtype=np.complex128)
-
-
-def h_box_product_state(m: int, copies: int, a: complex) -> np.ndarray:
-    """Return the full computational-basis vector of an H-box product."""
-    if m <= 0 or copies <= 0:
-        raise ValueError("m and copies must be positive")
-    n = m * copies
-    indices = np.arange(1 << n, dtype=np.uint64)
-    mask = (1 << m) - 1
-    full_boxes = np.zeros(len(indices), dtype=np.int16)
-    for copy in range(copies):
-        full_boxes += ((indices >> (copy * m)) & mask) == mask
-    return np.asarray(a**full_boxes, dtype=np.complex128)
-
-
-def general_h_box_product_span(ns: Sequence[int], m: int) -> np.ndarray:
-    """Return orbit columns spanning the H-box product for every parameter ``a``."""
-    counts = h_box_full_counts(ns, m)
-    copies = sum(ns) // m
-    return np.equal.outer(counts, np.arange(copies + 1)).astype(np.complex128)
-
-
-def _complex_expression(value: complex) -> str:
-    """Format a complex number as a SymPy-compatible expression."""
-    return f"({value.real:.17g}) + ({value.imag:.17g})*I"
 
 
 def argument_parser() -> argparse.ArgumentParser:
@@ -111,58 +41,37 @@ def argument_parser() -> argparse.ArgumentParser:
         help="fixed H-box parameter, e.g. 0.5 or 1+2i; omit for general a",
     )
     parser = add_search_arguments(parser, partition_example="2+2+2")
-    # Fixed H-box targets have cancellation barriers that purely greedy repair
-    # does not cross. Small destruction moves and a modest stochastic shortlist
-    # recover the rank-5 H_2(0)^3 decomposition without materially changing the
-    # cost of a repair step.
+    parser.add_argument(
+        "--reduced-pool", action="store_true",
+        help="alias for --pool reduced; supports any m and fixed or symbolic a",
+    )
+    parser.add_argument("--pool", choices=("auto", "reduced", "full"), default="auto",
+                        help="dictionary selection (default: auto)")
+    parser.add_argument("--report", help="write settings and trial results, including failures")
+    parser.add_argument("--start-temperature", type=float, default=2e-2,
+                        help="initial LNS temperature")
+    parser.add_argument("--end-temperature", type=float, default=2e-4,
+                        help="final LNS temperature")
+    parser.add_argument("--working-pool-limit", type=int, default=50_000,
+                        help="screened full-dictionary pool size")
+    parser.add_argument("--pool-memory-mib", type=float, default=512,
+                        help="estimated pool memory budget; raise explicitly for larger searches")
     parser.set_defaults(
-        destroy_sizes=(2, 3, 4, 6, 8, 12),
-        repair_shortlist=8,
+        trials=8, iterations=5000, oversample=2, max_parts=4,
+        destroy_sizes=(1, 2, 3, 4, 6), repair_shortlist=8,
     )
     return parser
 
 
-def main() -> None:
-    """Parse command-line arguments and run the requested H-box search."""
-    args = argument_parser().parse_args()
-    if args.m <= 0 or args.n % args.m:
-        raise SystemExit("--m must be positive and divide n")
-    copies = args.n // args.m
-
-    # The target is invariant under permutations inside each H-box.  More
-    # refined explicitly supplied partitions are allowed, but no block may
-    # cross a box boundary.
-    if args.partition is None:
-        args.partition = (args.m,) * copies
+def main() -> int:
+    """Parse CLI arguments and delegate the H-box search to the helper."""
+    parser = argument_parser()
+    args = parser.parse_args()
     try:
-        _box_block_groups(args.partition, args.m)
-    except ValueError as error:
-        raise SystemExit(str(error)) from error
-
-    common_target = {
-        "type": "H_product",
-        "m": args.m,
-        "copies": copies,
-        "normalization": "unnormalised",
-        "box_order": "copies are contiguous m-qubit blocks",
-        "amplitude": "a**full_boxes",
-    }
-    if args.a is None:
-        builder = lambda ns: general_h_box_product_span(ns, args.m)
-        target_spec = {
-            **common_target,
-            "family": True,
-            "symbol": "a",
-        }
-    else:
-        builder = lambda ns: h_box_product_orbits(ns, args.m, args.a)
-        target_spec = {
-            **common_target,
-            "family": False,
-            "a": _complex_expression(args.a),
-        }
-    run_target_search(args, builder, target_spec)
+        return run_h_search(args)
+    except HProductSearchError as error:
+        parser.error(str(error))
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
