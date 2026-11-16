@@ -102,16 +102,16 @@ $n$ | $R^+$ | $R^-$ | $\alpha$ | partition
 
 ### Two-legged
 
-Rank upper bounds for the product two-legged $H_a$ state for arbitrary $a$ ($R$) and for $a = 0, -1$ ($R_0$, $R_{-1}$). The latter is known as the CS product state.
+Rank upper bounds for the product two-legged $H_a$ state for arbitrary $a$ ($R$) and for $a = 0, i$ ($R_0$, $R_{i}$). The latter is known as the CS product state.
 
-$n$ | $R$ | $R_0$ | $R_{-1}$
-----|-----|-------|---------
-  2 |   2 |     2 |       2
-  4 |   3 |     3 |       3
-  6 |   6 |     5 |       6
-  8 |   9 |     9 |       9
- 10 |  17 |    14 |      17
- 12 |  27 |    23 |      27
+$n$ | $R$ | $R_0$ | $R_{i}$
+----|-----|-------|--------
+  2 |   2 |     2 |      2
+  4 |   3 |     3 |      3
+  6 |   6 |     5 |      6
+  8 |   9 |     9 |      9
+ 10 |  17 |    14 |     17
+ 12 |  27 |    23 |     27
 
 ### Three-legged
 
